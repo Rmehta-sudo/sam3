@@ -75,5 +75,7 @@ def copy_data_to_device(data, device: torch.device, *args: Any, **kwargs: Any):
                 )
         return new_data_class
     elif isinstance(data, _CopyableData):
+        if isinstance(data, torch.Tensor) and not data.is_floating_point():
+            kwargs = {k: v for k, v in kwargs.items() if k != "dtype"}
         return data.to(device, *args, **kwargs)
     return data

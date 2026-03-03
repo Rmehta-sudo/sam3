@@ -143,13 +143,14 @@ class Sam3Image(torch.nn.Module):
         # note: we allow using a list (or other indexable types) of tensors as img_batch
         # (e.g. for async frame loading in demo). In this case we index img_batch.tensors directly
         if isinstance(img_batch, torch.Tensor):
-            image = img_batch[unique_ids]
+            image = img_batch[unique_ids.to(img_batch.device)]
         elif unique_ids.numel() == 1:
             image = img_batch[unique_ids.item()].unsqueeze(0)
         else:
             image = torch.stack([img_batch[i] for i in unique_ids.tolist()])
         # `img_batch` might be fp16 and offloaded to CPU
-        image = image.to(dtype=torch.float32, device=self.device)
+        model_dtype = next(self.parameters()).dtype
+        image = image.to(dtype=model_dtype, device=self.device)
         # Next time we call this function, we want to remember which indices we computed
         id_mapping = torch.full(
             (len(img_batch),), -1, dtype=torch.long, device=self.device
@@ -193,7 +194,7 @@ class Sam3Image(torch.nn.Module):
         )
         if visual_prompt_embed is None:
             visual_prompt_embed = torch.zeros(
-                (0, *geo_feats.shape[1:]), device=geo_feats.device
+                (0, *geo_feats.shape[1:]), device=geo_feats.device, dtype=geo_feats.dtype
             )
             visual_prompt_mask = torch.zeros(
                 (*geo_masks.shape[:-1], 0),
@@ -201,7 +202,7 @@ class Sam3Image(torch.nn.Module):
                 dtype=geo_masks.dtype,
             )
         if encode_text:
-            prompt = torch.cat([txt_feats, geo_feats, visual_prompt_embed], dim=0)
+            prompt = torch.cat([txt_feats.to(geo_feats.dtype), geo_feats, visual_prompt_embed], dim=0)
             prompt_mask = torch.cat([txt_masks, geo_masks, visual_prompt_mask], dim=1)
         else:
             prompt = torch.cat([geo_feats, visual_prompt_embed], dim=0)

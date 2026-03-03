@@ -128,7 +128,7 @@ class SegmentationHead(nn.Module):
             )
 
             backbone_visual_feats[-1] = encoder_visual_embed
-            if self.act_ckpt:
+            if self.act_ckpt and self.training:
                 pixel_embed = checkpoint.checkpoint(
                     self.pixel_decoder, backbone_visual_feats, use_reentrant=False
                 )

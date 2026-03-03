@@ -787,7 +787,7 @@ def build_sam3_video_model(
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys}")
 
-    model.to(device=device)
+    model.to(device=device, dtype=torch.bfloat16)
     return model
 
 

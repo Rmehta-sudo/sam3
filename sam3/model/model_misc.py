@@ -273,7 +273,7 @@ def gen_sineembed_for_position(pos_tensor, num_feats=256):
         pos = torch.cat((pos_y, pos_x, pos_w, pos_h), dim=2)
     else:
         raise ValueError("Unknown pos_tensor shape(-1):{}".format(pos_tensor.size(-1)))
-    return pos
+    return pos.to(pos_tensor.dtype)
 
 
 class SAM3Output(list):

@@ -58,51 +58,54 @@ class Sam3VideoPredictor:
     @torch.inference_mode()
     def handle_request(self, request):
         """Dispatch a request based on its type."""
-        request_type = request["type"]
-        if request_type == "start_session":
-            return self.start_session(
-                resource_path=request["resource_path"],
-                session_id=request.get("session_id", None),
-            )
-        elif request_type == "add_prompt":
-            return self.add_prompt(
-                session_id=request["session_id"],
-                frame_idx=request["frame_index"],
-                text=request.get("text", None),
-                points=request.get("points", None),
-                point_labels=request.get("point_labels", None),
-                bounding_boxes=request.get("bounding_boxes", None),
-                bounding_box_labels=request.get("bounding_box_labels", None),
-                obj_id=request.get("obj_id", None),
-            )
-        elif request_type == "remove_object":
-            return self.remove_object(
-                session_id=request["session_id"],
-                obj_id=request["obj_id"],
-                is_user_action=request.get("is_user_action", True),
-            )
-        elif request_type == "reset_session":
-            return self.reset_session(session_id=request["session_id"])
-        elif request_type == "close_session":
-            return self.close_session(session_id=request["session_id"])
-        else:
-            raise RuntimeError(f"invalid request type: {request_type}")
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            request_type = request["type"]
+            if request_type == "start_session":
+                return self.start_session(
+                    resource_path=request["resource_path"],
+                    session_id=request.get("session_id", None),
+                    offload_video_to_cpu=request.get("offload_video_to_cpu", False),
+                )
+            elif request_type == "add_prompt":
+                return self.add_prompt(
+                    session_id=request["session_id"],
+                    frame_idx=request["frame_index"],
+                    text=request.get("text", None),
+                    points=request.get("points", None),
+                    point_labels=request.get("point_labels", None),
+                    bounding_boxes=request.get("bounding_boxes", None),
+                    bounding_box_labels=request.get("bounding_box_labels", None),
+                    obj_id=request.get("obj_id", None),
+                )
+            elif request_type == "remove_object":
+                return self.remove_object(
+                    session_id=request["session_id"],
+                    obj_id=request["obj_id"],
+                    is_user_action=request.get("is_user_action", True),
+                )
+            elif request_type == "reset_session":
+                return self.reset_session(session_id=request["session_id"])
+            elif request_type == "close_session":
+                return self.close_session(session_id=request["session_id"])
+            else:
+                raise RuntimeError(f"invalid request type: {request_type}")
 
     @torch.inference_mode()
     def handle_stream_request(self, request):
         """Dispatch a stream request based on its type."""
-        request_type = request["type"]
-        if request_type == "propagate_in_video":
-            yield from self.propagate_in_video(
-                session_id=request["session_id"],
-                propagation_direction=request.get("propagation_direction", "both"),
-                start_frame_idx=request.get("start_frame_index", None),
-                max_frame_num_to_track=request.get("max_frame_num_to_track", None),
-            )
-        else:
-            raise RuntimeError(f"invalid request type: {request_type}")
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            request_type = request["type"]
+            if request_type == "propagate_in_video":
+                yield from self.propagate_in_video(
+                    session_id=request["session_id"],
+                    propagation_direction=request.get("propagation_direction", "both"),
+                    start_frame_idx=request.get("start_frame_index", None),
+                    max_frame_num_to_track=request.get("max_frame_num_to_track", None),
+                )
+            else:
+                raise RuntimeError(f"invalid request type: {request_type}")
 
-    def start_session(self, resource_path, session_id=None):
+    def start_session(self, resource_path, session_id=None, offload_video_to_cpu=False):
         """
         Start a new inference session on an image or a video. Here `resource_path`
         can be either a path to an image file (for image inference) or an MP4 file
@@ -117,6 +120,7 @@ class Sam3VideoPredictor:
             resource_path=resource_path,
             async_loading_frames=self.async_loading_frames,
             video_loader_type=self.video_loader_type,
+            offload_video_to_cpu=offload_video_to_cpu,
         )
         if not session_id:
             session_id = str(uuid.uuid4())

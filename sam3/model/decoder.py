@@ -68,8 +68,7 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.amp.autocast(device_type="cuda", enabled=False):
-            tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
+        tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)
         return tgt
@@ -402,7 +401,7 @@ class TransformerDecoder(nn.Module):
         B = B.contiguous()  # memeff attn likes ordered strides
         if not torch.compiler.is_dynamo_compiling():
             assert B.shape[2:] == (num_queries, H * W)
-        return B
+        return B.to(reference_boxes.dtype)
 
     def forward(
         self,
@@ -500,7 +499,7 @@ class TransformerDecoder(nn.Module):
         for layer_idx, layer in enumerate(self.layers):
             reference_points_input = (
                 reference_boxes[:, :, None]
-                * torch.cat([valid_ratios, valid_ratios], -1)[None, :]
+                * torch.cat([valid_ratios, valid_ratios], -1)[None, :].to(reference_boxes.dtype)
             )  # nq, bs, nlevel, 4
 
             query_sine_embed = gen_sineembed_for_position(

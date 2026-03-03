@@ -74,7 +74,7 @@ class PositionEmbeddingSine(nn.Module):
     def encode_boxes(self, x, y, w, h):
         pos_x, pos_y = self._encode_xy(x, y)
         pos = torch.cat((pos_y, pos_x, h[:, None], w[:, None]), dim=1)
-        return pos
+        return pos.to(x.dtype)
 
     encode = encode_boxes  # Backwards compatibility
 
@@ -85,7 +85,7 @@ class PositionEmbeddingSine(nn.Module):
         pos_x, pos_y = self._encode_xy(x.flatten(), y.flatten())
         pos_x, pos_y = pos_x.reshape(bx, nx, -1), pos_y.reshape(by, ny, -1)
         pos = torch.cat((pos_y, pos_x, labels[:, :, None]), dim=2)
-        return pos
+        return pos.to(x.dtype)
 
     @torch.no_grad()
     def forward(self, x):
@@ -122,5 +122,5 @@ class PositionEmbeddingSine(nn.Module):
         ).flatten(3)
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
         if cache_key is not None:
-            self.cache[cache_key] = pos[0]
-        return pos
+            self.cache[cache_key] = pos[0].clone().detach()
+        return pos.to(x.dtype)

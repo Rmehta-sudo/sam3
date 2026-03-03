@@ -78,7 +78,7 @@ class Sam3VideoInference(Sam3VideoBase):
         # values that don't change across frames (so we only need to hold one copy of them)
         inference_state["constants"] = {}
         # inputs on each frame
-        self._construct_initial_input_batch(inference_state, images)
+        self._construct_initial_input_batch(inference_state, images, offload_video_to_cpu=offload_video_to_cpu)
         # initialize extra states
         inference_state["tracker_inference_states"] = []
         inference_state["tracker_metadata"] = {}
@@ -111,7 +111,7 @@ class Sam3VideoInference(Sam3VideoBase):
         inference_state["cached_frame_outputs"].clear()
         inference_state["action_history"].clear()  # for logging user actions
 
-    def _construct_initial_input_batch(self, inference_state, images):
+    def _construct_initial_input_batch(self, inference_state, images, offload_video_to_cpu=False):
         """Construct an initial `BatchedDatapoint` instance as input."""
         # 1) img_batch
         num_frames = len(images)
@@ -141,23 +141,40 @@ class Sam3VideoInference(Sam3VideoBase):
             stages[i] = convert_my_tensors(stages[i])
 
         # construct the final `BatchedDatapoint` and cast to GPU
-        input_batch = BatchedDatapoint(
-            img_batch=images,
-            find_text_batch=find_text_batch,
-            find_inputs=stages,
-            find_targets=[None] * num_frames,
-            find_metadatas=[None] * num_frames,
-        )
-        input_batch = copy_data_to_device(input_batch, device, non_blocking=True)
+        # When offload_video_to_cpu=True, the images list intentionally stays on CPU so that
+        # only one frame is moved to GPU at a time during inference. We must NOT pass img_batch
+        # through copy_data_to_device here or the entire video tensor will be allocated on GPU
+        # in one shot, defeating the offload entirely and causing CUDA OOM.
+        model_dtype = next(self.parameters()).dtype
+        if offload_video_to_cpu:
+            # Move only the non-image parts of the batch to GPU; img_batch stays on CPU.
+            stages_on_device = copy_data_to_device(stages, device, dtype=model_dtype, non_blocking=True)
+            input_batch = BatchedDatapoint(
+                img_batch=images,                        # CPU — frames moved to GPU one-by-one later
+                find_text_batch=find_text_batch,
+                find_inputs=stages_on_device,
+                find_targets=[None] * num_frames,
+                find_metadatas=[None] * num_frames,
+            )
+        else:
+            input_batch = BatchedDatapoint(
+                img_batch=images,
+                find_text_batch=find_text_batch,
+                find_inputs=stages,
+                find_targets=[None] * num_frames,
+                find_metadatas=[None] * num_frames,
+            )
+            input_batch = copy_data_to_device(input_batch, device, dtype=model_dtype, non_blocking=True)
         inference_state["input_batch"] = input_batch
 
         # construct the placeholder interactive prompts and tracking queries
         bs = 1
+        model_dtype = next(self.parameters()).dtype
         inference_state["constants"]["empty_geometric_prompt"] = Prompt(
-            box_embeddings=torch.zeros(0, bs, 4, device=device),
+            box_embeddings=torch.zeros(0, bs, 4, device=device, dtype=model_dtype),
             box_mask=torch.zeros(bs, 0, device=device, dtype=torch.bool),
             box_labels=torch.zeros(0, bs, device=device, dtype=torch.long),
-            point_embeddings=torch.zeros(0, bs, 2, device=device),
+            point_embeddings=torch.zeros(0, bs, 2, device=device, dtype=model_dtype),
             point_mask=torch.zeros(bs, 0, device=device, dtype=torch.bool),
             point_labels=torch.zeros(0, bs, device=device, dtype=torch.long),
         )
@@ -798,7 +815,6 @@ class Sam3VideoInference(Sam3VideoBase):
         return inference_state
 
     @torch.inference_mode()
-    @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
     def warm_up_compilation(self):
         """
         Warm up the model by running a dummy inference to compile the model. This is
@@ -906,7 +922,6 @@ class Sam3VideoInference(Sam3VideoBase):
         )
         return frame_idx, self._postprocess_output(inference_state, out)
 
-    @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
     def forward(self, input: BatchedDatapoint, is_inference: bool = False):
         """This method is only used for benchmark eval (not used in the demo)."""
         # set the model to single GPU for benchmark evaluation (to be compatible with trainer)
